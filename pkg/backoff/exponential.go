@@ -9,10 +9,9 @@ import (
 // CalculateDelay calculates exponential backoff delay
 // Formula: delay = base^attempts
 // Example with base=2:
-//
-//	Attempt 1: 2^1 = 2 seconds
-//	Attempt 2: 2^2 = 4 seconds
-//	Attempt 3: 2^3 = 8 seconds
+//   Attempt 1: 2^1 = 2 seconds
+//   Attempt 2: 2^2 = 4 seconds
+//   Attempt 3: 2^3 = 8 seconds
 func CalculateDelay(attempt int, base int) time.Duration {
 	if attempt <= 0 {
 		return 0

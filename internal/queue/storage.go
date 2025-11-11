@@ -1,12 +1,12 @@
 package queue
 
 import (
-	"context"
 	"fmt"
 	"time"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var db *gorm.DB
@@ -76,9 +76,10 @@ func ListAllJobs() ([]*Job, error) {
 func UpdateJobState(jobID string, newState string) error {
 	return db.Model(&Job{}).
 		Where("id = ?", jobID).
-		Update("state", newState).
-		Update("updated_at", time.Now()).
-		Error
+		Updates(map[string]interface{}{
+			"state":      newState,
+			"updated_at": time.Now(),
+		}).Error
 }
 
 // UpdateJob updates the entire job
@@ -91,10 +92,9 @@ func UpdateJob(job *Job) error {
 // Returns the locked job or error if already locked
 func LockJobForProcessing(jobID string) (*Job, error) {
 	var job Job
-	ctx := context.Background()
 
 	// Start transaction for atomic operation
-	tx := db.WithContext(ctx)
+	tx := db.Begin()
 	defer func() {
 		if r := recover(); r != nil {
 			tx.Rollback()
@@ -102,10 +102,23 @@ func LockJobForProcessing(jobID string) (*Job, error) {
 		}
 	}()
 
+	// Lock and fetch job
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("id = ? AND state = ?", jobID, StatePending).
+		First(&job).Error; err != nil {
+		tx.Rollback()
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("job not found or not in pending state")
+		}
+		return nil, err
+	}
+
 	// Update state to processing
 	if err := tx.Model(&job).
-		Update("state", StateProcessing).
-		Update("updated_at", time.Now()).Error; err != nil {
+		Updates(map[string]interface{}{
+			"state":      StateProcessing,
+			"updated_at": time.Now(),
+		}).Error; err != nil {
 		tx.Rollback()
 		return nil, err
 	}
@@ -114,6 +127,7 @@ func LockJobForProcessing(jobID string) (*Job, error) {
 		return nil, err
 	}
 
+	job.State = StateProcessing
 	return &job, nil
 }
 
@@ -135,8 +149,12 @@ func MoveJobToDLQ(jobID string, reason string) error {
 		Reason:       reason,
 	}
 
-	ctx := context.Background()
-	tx := db.WithContext(ctx)
+	tx := db.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
 
 	// Create DLQ entry
 	if err := tx.Create(&dlqJob).Error; err != nil {
@@ -192,8 +210,12 @@ func RetryDLQJob(jobID string) error {
 		LastError:  "",
 	}
 
-	ctx := context.Background()
-	tx := db.WithContext(ctx)
+	tx := db.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
 
 	// Create new job entry
 	if err := tx.Create(&newJob).Error; err != nil {

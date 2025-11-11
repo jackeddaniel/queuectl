@@ -100,3 +100,11 @@ func (c *Config) GetCommandTimeout() int {
 	}
 	return c.CommandTimeoutSeconds
 }
+
+// GetWorkerCount returns the configured worker count
+func (c *Config) GetWorkerCount() int {
+	if c.WorkerCount <= 0 {
+		return 1
+	}
+	return c.WorkerCount
+}

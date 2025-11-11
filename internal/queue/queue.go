@@ -3,7 +3,6 @@ package queue
 import (
 	"fmt"
 	"sync"
-	//"time"
 )
 
 // Queue defines the interface for job queue operations
@@ -11,11 +10,12 @@ type Queue interface {
 	Enqueue(job *Job) error
 	Dequeue() (*Job, error)
 	MarkProcessing(jobID string) error
-	MarkCompleted(jobID string) error
+	MarkCompleted(jobID string, output string) error
 	MarkFailed(jobID string, errorMsg string) error
 	GetStatus() (*QueueStatus, error)
 	GetJob(id string) (*Job, error)
 	ListByState(state string) ([]*Job, error)
+	ReloadPendingJobs() error
 }
 
 // QueueStatus represents the current state of the queue
@@ -68,7 +68,16 @@ func (q *DefaultQueue) Dequeue() (*Job, error) {
 	defer q.mu.Unlock()
 
 	if len(q.pendingJobs) == 0 {
-		return nil, nil // No jobs available
+		// Reload from database in case new jobs were added
+		jobs, err := ListJobsByState(StatePending)
+		if err != nil {
+			return nil, err
+		}
+		q.pendingJobs = jobs
+
+		if len(q.pendingJobs) == 0 {
+			return nil, nil // No jobs available
+		}
 	}
 
 	// Take first job (FIFO)
@@ -78,7 +87,7 @@ func (q *DefaultQueue) Dequeue() (*Job, error) {
 	// Lock in database
 	job, err := LockJobForProcessing(jobID)
 	if err != nil {
-		// If lock failed, put it back
+		// If lock failed, job might have been picked up by another worker
 		return nil, err
 	}
 
@@ -91,8 +100,15 @@ func (q *DefaultQueue) MarkProcessing(jobID string) error {
 }
 
 // MarkCompleted marks a job as successfully completed
-func (q *DefaultQueue) MarkCompleted(jobID string) error {
-	return UpdateJobState(jobID, StateCompleted)
+func (q *DefaultQueue) MarkCompleted(jobID string, output string) error {
+	job, err := GetJob(jobID)
+	if err != nil {
+		return err
+	}
+
+	job.State = StateCompleted
+	job.Output = output
+	return UpdateJob(job)
 }
 
 // MarkFailed marks a job as failed (but may be retried)
@@ -136,7 +152,7 @@ func (q *DefaultQueue) ListByState(state string) ([]*Job, error) {
 	return ListJobsByState(state)
 }
 
-// Helper function to reload pending jobs after restart
+// ReloadPendingJobs reloads pending jobs from database
 func (q *DefaultQueue) ReloadPendingJobs() error {
 	jobs, err := ListJobsByState(StatePending)
 	if err != nil {

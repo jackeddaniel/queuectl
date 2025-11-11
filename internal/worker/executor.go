@@ -24,17 +24,8 @@ func ExecuteCommand(ctx context.Context, command string, timeout time.Duration) 
 	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	// Parse command
-	parts := strings.Fields(command)
-	if len(parts) == 0 {
-		return ExecutionResult{
-			ExitCode: 127,
-			Error:    fmt.Errorf("empty command"),
-		}
-	}
-
-	// Create command
-	cmd := exec.CommandContext(cmdCtx, parts[0], parts[1:]...)
+	// Parse command - use shell to handle complex commands
+	cmd := exec.CommandContext(cmdCtx, "sh", "-c", command)
 
 	// Capture stdout and stderr
 	var stdout, stderr bytes.Buffer
@@ -52,6 +43,8 @@ func ExecuteCommand(ctx context.Context, command string, timeout time.Duration) 
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
+		} else if cmdCtx.Err() == context.DeadlineExceeded {
+			exitCode = 124 // Timeout exit code
 		} else {
 			exitCode = 1
 		}
@@ -74,7 +67,24 @@ func (r ExecutionResult) IsSuccess() bool {
 func (r ExecutionResult) GetFullOutput() string {
 	combined := r.Output
 	if r.StdErr != "" {
-		combined += "\nSTDERR:\n" + r.StdErr
+		if combined != "" {
+			combined += "\n"
+		}
+		combined += "STDERR:\n" + r.StdErr
 	}
 	return combined
+}
+
+// GetErrorMessage returns a descriptive error message
+func (r ExecutionResult) GetErrorMessage() string {
+	if r.Error != nil {
+		if strings.Contains(r.Error.Error(), "deadline exceeded") {
+			return fmt.Sprintf("command timed out (exit %d)", r.ExitCode)
+		}
+		return fmt.Sprintf("command failed: %v (exit %d)", r.Error, r.ExitCode)
+	}
+	if r.ExitCode != 0 {
+		return fmt.Sprintf("command exited with code %d", r.ExitCode)
+	}
+	return ""
 }
