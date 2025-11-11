@@ -253,6 +253,10 @@ func GetQueueStatus() (map[string]int, error) {
 	return status, nil
 }
 
+func DeleteDLQJob(jobID string) error {
+	return db.Delete(&DLQJob{}, "id = ?", jobID).Error
+}
+
 // Close closes the database connection
 func Close() error {
 	sqlDB, err := db.DB()

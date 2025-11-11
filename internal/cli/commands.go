@@ -110,6 +110,42 @@ func ListCmd(q *queue.Queue) *cobra.Command {
 	return cmd
 }
 
+// InspectCmd returns the inspect command for detailed job view
+func InspectCmd(q *queue.Queue) *cobra.Command {
+	return &cobra.Command{
+		Use:   "inspect <job-id>",
+		Short: "Inspect a job",
+		Long:  `Show detailed information about a specific job.`,
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			jobID := args[0]
+
+			job, err := (*q).GetJob(jobID)
+			if err != nil {
+				return fmt.Errorf("job not found: %w", err)
+			}
+
+			fmt.Println("Job Details:")
+			fmt.Println("─────────────────────────────────────────")
+			fmt.Printf("  ID:           %s\n", job.ID)
+			fmt.Printf("  Command:      %s\n", job.Command)
+			fmt.Printf("  State:        %s\n", job.State)
+			fmt.Printf("  Attempts:     %d/%d\n", job.Attempts, job.MaxRetries)
+			fmt.Printf("  Created:      %s\n", job.CreatedAt.Format("2006-01-02 15:04:05"))
+			fmt.Printf("  Updated:      %s\n", job.UpdatedAt.Format("2006-01-02 15:04:05"))
+			if job.LastError != "" {
+				fmt.Printf("  Last Error:\n%s\n", job.LastError)
+			}
+			if job.Output != "" {
+				fmt.Printf("  Output:\n%s\n", job.Output)
+			}
+			fmt.Println("─────────────────────────────────────────")
+
+			return nil
+		},
+	}
+}
+
 // StatusCmd returns the status command
 func StatusCmd(q *queue.Queue) *cobra.Command {
 	return &cobra.Command{
@@ -242,6 +278,37 @@ func DLQCmd(q *queue.Queue) *cobra.Command {
 		},
 	}
 
+	// dlq inspect subcommand - ENHANCED
+	inspectCmd := &cobra.Command{
+		Use:   "inspect <job-id>",
+		Short: "Inspect a DLQ job",
+		Long:  `Show detailed information about a job in the Dead Letter Queue.`,
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			jobID := args[0]
+
+			job, err := queue.GetDLQJob(jobID)
+			if err != nil {
+				return fmt.Errorf("failed to get DLQ job: %w", err)
+			}
+
+			fmt.Println("DLQ Job Details:")
+			fmt.Println("─────────────────────────────────────────")
+			fmt.Printf("  ID:               %s\n", job.ID)
+			fmt.Printf("  Command:          %s\n", job.Command)
+			fmt.Printf("  Attempts:         %d/%d\n", job.Attempts, job.MaxRetries)
+			fmt.Printf("  Created:          %s\n", job.CreatedAt.Format("2006-01-02 15:04:05"))
+			fmt.Printf("  Moved to DLQ:     %s\n", job.MovedToDLQAt.Format("2006-01-02 15:04:05"))
+			fmt.Printf("  Failure Reason:   %s\n", job.Reason)
+			if job.LastError != "" {
+				fmt.Printf("  Last Error:\n%s\n", job.LastError)
+			}
+			fmt.Println("─────────────────────────────────────────")
+
+			return nil
+		},
+	}
+
 	// dlq retry subcommand
 	retryCmd := &cobra.Command{
 		Use:   "retry <job-id>",
@@ -260,41 +327,38 @@ func DLQCmd(q *queue.Queue) *cobra.Command {
 		},
 	}
 
-	// dlq inspect subcommand
-	inspectCmd := &cobra.Command{
-		Use:   "inspect <job-id>",
-		Short: "Inspect a DLQ job",
-		Long:  `Show detailed information about a job in the Dead Letter Queue.`,
+	// dlq delete subcommand - NEW
+	deleteCmd := &cobra.Command{
+		Use:   "delete <job-id>",
+		Short: "Delete a DLQ job",
+		Long:  `Permanently delete a job from the Dead Letter Queue.`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			jobID := args[0]
 
-			job, err := queue.GetDLQJob(jobID)
-			if err != nil {
-				return fmt.Errorf("failed to get DLQ job: %w", err)
+			// Confirm deletion
+			fmt.Printf("Are you sure you want to delete job %s from DLQ? (yes/no): ", jobID)
+			var response string
+			fmt.Scanln(&response)
+
+			if response != "yes" {
+				fmt.Println("Deletion cancelled")
+				return nil
 			}
 
-			fmt.Println("DLQ Job Details:")
-			fmt.Println("─────────────────────────────")
-			fmt.Printf("  ID:           %s\n", job.ID)
-			fmt.Printf("  Command:      %s\n", job.Command)
-			fmt.Printf("  Attempts:     %d\n", job.Attempts)
-			fmt.Printf("  Max Retries:  %d\n", job.MaxRetries)
-			fmt.Printf("  Created:      %s\n", job.CreatedAt.Format("2006-01-02 15:04:05"))
-			fmt.Printf("  Moved to DLQ: %s\n", job.MovedToDLQAt.Format("2006-01-02 15:04:05"))
-			fmt.Printf("  Reason:       %s\n", job.Reason)
-			if job.LastError != "" {
-				fmt.Printf("  Last Error:\n%s\n", job.LastError)
+			if err := queue.DeleteDLQJob(jobID); err != nil {
+				return fmt.Errorf("failed to delete job: %w", err)
 			}
-			fmt.Println("─────────────────────────────")
 
+			fmt.Printf("Job %s deleted from DLQ\n", jobID)
 			return nil
 		},
 	}
 
 	cmd.AddCommand(listCmd)
-	cmd.AddCommand(retryCmd)
 	cmd.AddCommand(inspectCmd)
+	cmd.AddCommand(retryCmd)
+	cmd.AddCommand(deleteCmd)
 
 	return cmd
 }
