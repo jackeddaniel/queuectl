@@ -6,9 +6,9 @@ import (
 	//"log"
 
 	"github.com/google/uuid"
-	"github.com/spf13/cobra"
 	"github.com/jackeddaniel/queuectl/internal/config"
 	"github.com/jackeddaniel/queuectl/internal/queue"
+	"github.com/spf13/cobra"
 )
 
 // EnqueueCmd returns the enqueue command
