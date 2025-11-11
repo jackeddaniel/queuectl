@@ -1,0 +1,37 @@
+plan.md
+
+# Binaries
+queuectl
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Build artifacts
+/build/
+/dist/
+*.o
+*.a
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Go
+vendor/
+go.work
+.env
+
+# QueueCTL specific
+.queuectl/
+*.db
+*.db-shm
+*.db-wal
+
+# Test
+*.test
+coverage.out
